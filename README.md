@@ -40,8 +40,8 @@ install step does: **[Advanced Install](INSTALL.md)**.
 
 ## How to use Cyclotron
 
-Cyclotron takes a policy from simulation to the robot in five stages, one
-command each. Each stage name links to its quick start below; each
+Cyclotron takes a policy from training through export, viewing and benchmarking,
+with simple commands for each step. Each stage name links to its quick start below; each
 [docs] link to the full page with every option and advanced examples.
 
 - **[Train](#train)** [[docs](docs/train.md)] — `--train` trains a locomotion
@@ -60,6 +60,9 @@ command each. Each stage name links to its quick start below; each
   or shared policy in the browser with MuJoCo, no GPU and no Isaac Sim, for
   anyone who wants to try a policy — including people without a training
   machine.
+- **[Benchmark](#benchmark-a-policy)** [[docs](docs/benchmark.md)] — `--benchmark`
+  runs reproducible suites, views results, submits scores and publishes benchmark
+  folders. Cyclotron owns Hugging Face access; HPV provides simulation and the editor.
 
 ```mermaid
 flowchart LR
@@ -69,8 +72,13 @@ flowchart LR
     Outside["External IsaacLab Experiment"] -->|checkpoint| Export
     style Outside fill:transparent,stroke:transparent
     Export -->|exported/ folder| View
-    Export --> Share
+    Export -->|"--share upload"| Share
     Share -->|Hugging Face repo| View
+    Export -->|local exported/ folder| Benchmark
+    Share -->|Hugging Face repo| Benchmark
+    Benchmark -->|pinned Hub inputs| Submit[Submit scores]
+    View -->|edit benchmark folder| Publish[Publish benchmark]
+    Publish -->|Hub dataset| Benchmark
 ```
 
 <a id="train"></a>
@@ -146,7 +154,10 @@ together with `--load_run <run>`. `--share` takes the run folder itself, so
 there a filename alone is enough. Without it, the latest checkpoint is used. Play runs the checkpoint itself and writes no ONNX; use
 [`--export`](#export-a-policy) for that. Before running, play warns about
 anything that changed in the code since the run was trained; see
-[Code changes since training](docs/code-changes-since-training.md).
+[Code changes since training](docs/code-changes-since-training.md). Play and
+export simulate the robot model the run was trained with, fetched by the
+commit the run records when your checkout's differs
+([details](docs/code-changes-since-training.md#the-robot-model)).
 
 Checkpoints and logs are written to `logs/rsl_rl/<experiment_name>/<run>/`.
 
@@ -221,6 +232,42 @@ different checkpoint of the same run (a filename inside the run directory, or a 
 `--private` to create a private repo, and `--dry-run` to preview the card
 without uploading.
 
+<a id="benchmark-a-policy"></a>
+
+## Benchmark a policy ([docs](docs/benchmark.md))
+
+```bash
+# Run a local suite, or cyclotron's default suite in benchmarks/default (omit ./my-benchmark)
+./cyclotron.sh --benchmark <org>/<model> ./my-benchmark --jobs 2
+
+# Inspect the output
+./cyclotron.sh --benchmark view logs/benchmark_results/<timestamp>
+
+# Check a run's eligibility and proposed Hub score entries without uploading
+./cyclotron.sh --benchmark submit <result-directory> --dry-run
+```
+
+Results live in `logs/benchmark_results/<timestamp>/`: HPV's `result.json`
+and `report.html`, plus cyclotron's input/revision provenance. Runs using
+local folders remain local-only; submission requires pinned Hub model and
+benchmark inputs, clean code and a complete unmodified suite.
+
+Benchmarks live in `benchmarks/`: the viewer's **New benchmark** saves there,
+and `--benchmark pull` copies a published one there to edit. Git ignores them
+until you add one to `benchmarks/.gitignore`. Edit them in HPV's existing UI,
+then publish:
+
+```bash
+./cyclotron.sh --benchmark pull datasets/<org>/<dataset>    # or start one with New benchmark
+./cyclotron.sh --view <org>/<model> --benchmark benchmarks/<dataset>
+./cyclotron.sh --benchmark publish benchmarks/<dataset> <org>/<dataset> --dry-run
+```
+
+Python manages Hub access; Node still runs HPV. No TUI or training CLI
+rewrite is involved. See [benchmarking](docs/benchmark.md) for flags,
+publication, release tags, provenance rules and the external Hugging Face
+`cyclotron` framework-registration prerequisite.
+
 <a id="view-a-policy"></a>
 
 ## View a policy ([docs](docs/view.md))
@@ -229,18 +276,20 @@ without uploading.
 Hugging Face Hub, or one you exported. To watch a checkpoint in Isaac Sim
 instead, use `--play`. `--view` runs policies with
 [humanoid-policy-viewer](https://github.com/menloresearch/humanoid-policy-viewer)
-(MuJoCo + onnxruntime in WebAssembly), so it needs only
-[Node.js](https://nodejs.org) 20 or newer: no Isaac Sim and no GPU.
+(MuJoCo + onnxruntime in WebAssembly). It needs Python 3.10+ with
+`pip install -r requirements-eval.txt` and [Node.js](https://nodejs.org) 20+:
+no Isaac Sim, torch or GPU. See [standalone installation](INSTALL.md#viewing-and-benchmarking-only-optional).
 
 ```bash
 ./cyclotron.sh --view <org>/<model>                                   # from the Hub
 ./cyclotron.sh --view logs/rsl_rl/<experiment_name>/<run>             # from --export
+./cyclotron.sh --view logs/rsl_rl                                     # every exported run
 ```
 
 On the first run this fetches the `third_party/humanoid-policy-viewer`
 submodule, its npm dependencies and the Asimov 1 robot model. It then
-downloads `policy.onnx`, `env.yaml` and `agent.yaml` to
-`~/.cache/humanoid-policy-viewer/hf/`, checks them, and opens the viewer with
+resolves and downloads the policy and configuration into cyclotron's cache
+(default `~/.cache/cyclotron/`), checks them, and opens the viewer with
 the policy selected. The policy's inputs, gains, action scale, default pose and
 torque limits come from `env.yaml`. Use the sliders to command a velocity and
 push the robot.
@@ -250,8 +299,17 @@ policy), any folder holding `policy.onnx` and `env.yaml`, or an `.onnx` file.
 For a run folder, run `--export` first. A folder without `env.yaml` next to
 the `.onnx` is refused: the viewer will not guess the policy's gains.
 
-Options: `--revision <ref>` (branch, tag or commit), `--port <n>` (default
-3000) and `--no-open`. Private or gated repos need `HF_TOKEN` set.
+Give several policies to switch between them in the viewer; the first is
+selected. A folder of runs, such as `logs/rsl_rl`, stands for every exported
+run below it, newest first, so the newest is selected; cyclotron prints how
+many runs it found and names a few that still need `--export`.
+
+Options: `--revision <ref>` (branch, tag or commit of the first Hub policy),
+`--port <n>` (default 3000), `--no-open`, `--harness <name>` and
+`--benchmark <folder or dataset>`.
+Private or gated repos use `hf auth login` or `HF_TOKEN`. HPV keeps the full
+benchmark editing UI; cyclotron opens Hub benchmarks read-only, pulls them
+into `benchmarks/` to edit, and publishes them.
 
 The viewer simulates with MuJoCo, not PhysX, so it doubles as a quick
 sim2sim check. It builds the policy's input term by term from

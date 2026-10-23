@@ -8,8 +8,9 @@ trained with different code can load wrongly or behave differently. `--export`
 first sets the policy settings back to the ones the run saved in `env.yaml` and
 `agent.yaml`, like a restart of the run, with no overrides (see
 [What `--export` does](export.md#what---export-does)), but the code behind
-them, such as the observation functions and the robot model, is still the
-current one. Training therefore writes `params/code_state.yaml` next to
+them, such as the observation functions, is still the current one. Both load
+the robot model the run was trained with (see [The robot model](#the-robot-model)).
+Training therefore writes `params/code_state.yaml` next to
 `env.yaml` and `agent.yaml`, with only what the checks below use or a reader
 needs to find the training code again:
 
@@ -53,8 +54,9 @@ code and print what changed:
   by pattern reach other joints, or other gains, when the robot model
   changes, and no later check notices. `--export` always stops on these
   (check 10c in [export.md](export.md#after-building-the-environment)).
-- **Robot model**: whether its URDF still has the recorded sha256 (check
-  10d).
+- **Robot model**: whether the URDF loaded has the recorded sha256 (check
+  10d). It does unless the run's own robot model couldn't be loaded; see
+  [The robot model](#the-robot-model).
 - **Network code**: the modules in `actor_code` that changed. The weights
   still load and the ONNX file agrees with the changed code, so this is the
   only way to notice (check 11).
@@ -77,3 +79,55 @@ each export check catches.
 Export and play load only the policy from the checkpoint. The critic and the
 AMP discriminator are only used in training, so a run whose critic saw extra
 privileged inputs still exports and plays.
+
+## The robot model
+
+Export and play simulate the robot model the run was trained with, not
+necessarily the one your checkout pins: a policy trained on older joint
+ranges, masses or meshes is evaluated on those. When the URDF the current code
+loads has another sha256 than `robot_model` in `code_state.yaml` records, they
+fetch the model folder the URDF sits in (`sim-model/`, with its meshes) at the
+recorded commit of the recorded repository into cyclotron's cache, and load it
+from there (the first line only when it isn't cached yet):
+
+```
+[INFO] Fetching menloresearch/asimov-1 @ 732cc60 ...
+[INFO] Robot model: sim-model/urdf/asimov_1.urdf @ 732cc60 (as trained)
+```
+
+When the checkout's URDF already has the recorded sha256, it is loaded as it
+is: `[INFO] Robot model: <the checkout's URDF> (same URDF as trained)`. Only
+the URDF is known to match then, since its sha256 is all the run records of
+the model; meshes changed without it would go unnoticed. The cache is
+`$CYCLOTRON_CACHE_DIR`, else `$XDG_CACHE_HOME/cyclotron`, else
+`~/.cache/cyclotron`; each model is in
+`robot-models/<owner>__<repo>/<commit>__<model folder>/`, readable by the
+other users of a shared cache. Only that commit and its trees, and the files
+of its model folder and at the repository's root, are downloaded, and only
+those your `third_party/asimov-1` checkout doesn't already have, so a model it
+was checked out at before is loaded without a network. The run records the
+repository without its host, so it is fetched from
+`github.com/<owner>/<repo>`; the commit hash and the URDF's sha256 still guard
+what is loaded. A model is fetched once and checked against the
+recorded sha256 before every use; a cached copy whose URDF no longer matches
+is refused, never fetched over (delete its folder to fetch it again).
+
+The run's model can't be loaded when the run records no commit (its URDF
+wasn't in git), when the model repository had uncommitted changes at training
+(the commit alone isn't the model), or when the fetch fails, for example
+offline. Export and play then load the current model, as before, and the
+robot model warning (check 10d) says why and how to supply the model (at once,
+as a warning, when the current model's URDF is missing too, since building the
+environment then stops first):
+
+```
+[WARNING] The robot model changed since training: sim-model/urdf/asimov_1.urdf @ 732cc60 (sha256 bcd9a911c193) -> …
+  The robot model the run was trained with couldn't be loaded: fetching menloresearch/asimov-1 @ 732cc60 failed (…). To load it, set ASIMOV_1_MODEL_DIR=<the sim-model folder of menloresearch/asimov-1 @ 732cc60>.
+```
+
+`ASIMOV_1_MODEL_DIR`, when set, names the robot model to load: export and play
+load it as they always have and check 10d compares it with the run's. To watch
+a run on the current robot model instead, pass `--current_robot_model` to
+`--play`; it then warns that the robot model changed, as before. A URDF named
+by the Hydra override `env.scene.robot.spawn.asset_path=<urdf>` is loaded as
+it is too.
