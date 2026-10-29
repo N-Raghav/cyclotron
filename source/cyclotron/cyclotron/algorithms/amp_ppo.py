@@ -44,6 +44,10 @@ class AMPPPO(PPO):
         amp_reward_command_gate: bool = False,
         amp_reward_command_name: str | None = None,
         amp_reward_command_threshold: float = 0.0,
+        amp_reward_gate_min_forward: float | None = None,
+        amp_reward_gate_max_forward: float | None = None,
+        amp_reward_gate_max_lateral: float | None = None,
+        amp_reward_gate_max_yaw: float | None = None,
         amp_rollout_obs_clip: float | None = 500.0,
         amp_min_normalized_std: float | None = 0.0,
         **kwargs,
@@ -73,6 +77,10 @@ class AMPPPO(PPO):
         self.amp_reward_command_gate = amp_reward_command_gate
         self.amp_reward_command_name = amp_reward_command_name
         self.amp_reward_command_threshold = amp_reward_command_threshold
+        self.amp_reward_gate_min_forward = amp_reward_gate_min_forward
+        self.amp_reward_gate_max_forward = amp_reward_gate_max_forward
+        self.amp_reward_gate_max_lateral = amp_reward_gate_max_lateral
+        self.amp_reward_gate_max_yaw = amp_reward_gate_max_yaw
         self.amp_rollout_obs_clip = amp_rollout_obs_clip
         self.amp_min_normalized_std = amp_min_normalized_std
 
@@ -361,8 +369,19 @@ class AMPPPO(PPO):
                 )
                 self._warned_missing_gate_command = True
             return None
-        command_norm = torch.linalg.norm(command[:, :3].to(self.device), dim=1)
-        return (command_norm > self.amp_reward_command_threshold).to(dtype=torch.float, device=self.device)
+        command = command[:, :3].to(self.device)
+        gate = torch.linalg.norm(command, dim=1) > self.amp_reward_command_threshold
+        # Optionally only reward style for commands the reference motion covers (e.g. forward walking), so the
+        # discriminator doesn't push the policy to stand still on commands the clips never show.
+        if self.amp_reward_gate_min_forward is not None:
+            gate &= command[:, 0] >= self.amp_reward_gate_min_forward
+        if self.amp_reward_gate_max_forward is not None:
+            gate &= command[:, 0] <= self.amp_reward_gate_max_forward
+        if self.amp_reward_gate_max_lateral is not None:
+            gate &= command[:, 1].abs() <= self.amp_reward_gate_max_lateral
+        if self.amp_reward_gate_max_yaw is not None:
+            gate &= command[:, 2].abs() <= self.amp_reward_gate_max_yaw
+        return gate.to(dtype=torch.float)
 
     def _get_velocity_command(self) -> torch.Tensor | None:
         if self.command_manager is None:

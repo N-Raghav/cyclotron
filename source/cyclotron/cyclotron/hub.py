@@ -14,6 +14,8 @@ import re
 EXPERIMENT_TASKS = {
     "asimov1_velocity": "Asimov1-Velocity-v0",
     "asimov_velocity_amp": "Asimov1-Velocity-AMP-v0",
+    "asimov_velocity_amp_soccer": "Asimov1-Velocity-AMP-Soccer-v0",
+    "asimov1_pass": "Asimov1-Pass-v0",
 }
 
 

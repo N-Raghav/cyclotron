@@ -49,6 +49,10 @@ class AMPPPOAlgorithmCfg(RslRlPpoAlgorithmCfg):
 
     amp_reward_command_name: str | None = None
     amp_reward_command_threshold: float = 0.0
+    amp_reward_gate_min_forward: float | None = None
+    amp_reward_gate_max_forward: float | None = None
+    amp_reward_gate_max_lateral: float | None = None
+    amp_reward_gate_max_yaw: float | None = None
 
     amp_rollout_obs_clip: float | None = 500.0
 
@@ -130,4 +134,22 @@ class Asimov1AMPRunnerCfg(Asimov1PPORunnerCfg):
         amp_reward_command_gate=True,
         amp_reward_command_name="twist",
         amp_reward_command_threshold=0.1,
+    )
+
+
+@configclass
+class Asimov1AMPSoccerRunnerCfg(Asimov1AMPRunnerCfg):
+    """AMP walker fine-tuned on the soccer robot (foot box colliders). The style reward is only given for commands
+    the forward-walking reference clip covers, so backward, sideways and turning commands are learned from the task
+    reward alone instead of being discouraged by the discriminator."""
+
+    experiment_name = "asimov_velocity_amp_soccer"
+    run_name = "amp_soccer"
+    max_iterations = 2000
+    algorithm = Asimov1AMPRunnerCfg().algorithm.replace(
+        # The walking clip covers vx 0-0.5 m/s, |vy| <= 0.15, |wz| <= 0.5 (gait sway, not turning).
+        amp_reward_gate_min_forward=0.1,
+        amp_reward_gate_max_forward=0.6,
+        amp_reward_gate_max_lateral=0.15,
+        amp_reward_gate_max_yaw=0.3,
     )

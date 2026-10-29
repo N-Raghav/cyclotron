@@ -19,12 +19,16 @@ logs/
 outputs/
 videos/
 wandb/
+slurm/logs/
+*.log
 *.pt
 *.onnx
 
 # Motion data is ignored by default except for the one training clip in this repository.
 *.npz
 !source/cyclotron/cyclotron/tasks/locomotion/motions/policy_delay_walk_slow.npz
+# Inside-foot pass reference clips (scripts/soccer/pass_motion.py), one per ball radius.
+!source/cyclotron/cyclotron/tasks/soccer/motions/*.npz
 
 # IDE and operating system files
 .DS_Store

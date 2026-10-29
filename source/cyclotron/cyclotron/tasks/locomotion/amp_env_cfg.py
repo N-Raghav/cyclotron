@@ -12,6 +12,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 from cyclotron.assets.robots.asimov_1 import ASIMOV_1_JOINT_NAMES
+from cyclotron.assets.robots.asimov_1_soccer import ASIMOV_1_SOCCER_CFG
 
 from . import mdp
 from .velocity_env_cfg import Asimov1VelocityEnvCfg, Asimov1VelocityEnvCfg_PLAY
@@ -67,3 +68,19 @@ class Asimov1AmpEnvCfg_PLAY(Asimov1VelocityEnvCfg_PLAY):
     def __post_init__(self):
         super().__post_init__()
         self.observations.amp = AmpObsCfg()
+
+
+@configclass
+class Asimov1AmpSoccerEnvCfg(Asimov1AmpEnvCfg):
+    """AMP walking on the soccer robot, whose feet have box colliders for ball contact."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = ASIMOV_1_SOCCER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+@configclass
+class Asimov1AmpSoccerEnvCfg_PLAY(Asimov1AmpEnvCfg_PLAY):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = ASIMOV_1_SOCCER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")

@@ -82,6 +82,40 @@ POSE_JOINT_PATTERNS = (
 )
 
 
+# Self-collision pairs. PhysX's filtered contacts need every filter pattern to match one prim per sensor body, so a
+# single sensor on several links filtered against regex groups reports nothing; instead each source link gets its own
+# sensor, filtered against an explicit list of target links. Knees and feet also watch the other lower leg.
+SELF_COLLISION_TARGETS = (
+    "pelvis_link", "waist_yaw_link",
+    "left_hip_pitch_link", "right_hip_pitch_link", "left_hip_roll_link", "right_hip_roll_link",
+    "left_hip_yaw_link", "right_hip_yaw_link", "left_shoulder_roll_link", "right_shoulder_roll_link",
+)
+
+
+def _self_collision_sources() -> dict[str, tuple[str, ...]]:
+    sources = {}
+    for side, other in (("left", "right"), ("right", "left")):
+        for part in ("wrist_yaw", "elbow"):
+            sources[f"{side}_{part}_link"] = SELF_COLLISION_TARGETS
+        other_leg = tuple(f"{other}_{part}_link" for part in ("knee", "ankle_pitch", "ankle_roll"))
+        for part in ("knee", "ankle_roll"):
+            sources[f"{side}_{part}_link"] = SELF_COLLISION_TARGETS + other_leg
+    return sources
+
+
+SELF_COLLISION_SENSORS = [f"self_collision_{link.removesuffix('_link')}" for link in _self_collision_sources()]
+
+
+def self_collision_sensors() -> dict[str, ContactSensorCfg]:
+    return {
+        f"self_collision_{link.removesuffix('_link')}": ContactSensorCfg(
+            prim_path=f"{{ENV_REGEX_NS}}/Robot/{link}",
+            filter_prim_paths_expr=[f"{{ENV_REGEX_NS}}/Robot/{target}" for target in targets],
+        )
+        for link, targets in _self_collision_sources().items()
+    }
+
+
 def _slot_cfg(names: tuple[str, ...]) -> SceneEntityCfg:
     return SceneEntityCfg("robot", joint_names=list(names), preserve_order=True)
 
@@ -118,17 +152,7 @@ class Asimov1SceneCfg(InteractiveSceneCfg):
         history_length=3,
         track_air_time=True,
     )
-    self_collision = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/.*_(wrist_yaw|elbow|knee|ankle_roll)_link",
-        filter_prim_paths_expr=[
-            "{ENV_REGEX_NS}/Robot/pelvis_link",
-            "{ENV_REGEX_NS}/Robot/waist_yaw_link",
-            "{ENV_REGEX_NS}/Robot/.*_hip_pitch_link",
-            "{ENV_REGEX_NS}/Robot/.*_hip_roll_link",
-            "{ENV_REGEX_NS}/Robot/.*_hip_yaw_link",
-            "{ENV_REGEX_NS}/Robot/.*_shoulder_roll_link",
-        ],
-    )
+    # Self-collision sensors (one per source link) are added in Asimov1VelocityEnvCfg.__post_init__.
 
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
@@ -522,7 +546,7 @@ class RewardsCfg:
     self_collisions = RewTerm(
         func=mdp.self_collision_cost,
         weight=-1.0,
-        params={"sensor_name": "self_collision"},
+        params={"sensor_names": SELF_COLLISION_SENSORS},
     )
 
 
@@ -557,6 +581,8 @@ class Asimov1VelocityEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
+        for name, sensor in self_collision_sensors().items():
+            setattr(self.scene, name, sensor)
 
 
 @configclass

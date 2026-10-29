@@ -320,13 +320,15 @@ def feet_contact_force_limit(
 
 def self_collision_cost(
     env: ManagerBasedRLEnv,
-    sensor_name: str,
+    sensor_names: list[str],
     force_threshold: float = 10.0,
 ) -> torch.Tensor:
-    sensor: ContactSensor = env.scene.sensors[sensor_name]
-    force_matrix = sensor.data.force_matrix_w
-    hit = force_matrix.norm(dim=-1) > force_threshold
-    return hit.sum(dim=(1, 2)).float()
+    """Number of self-contact pairs above the force threshold, over filtered contact sensors."""
+    total = torch.zeros(env.num_envs, device=env.device)
+    for name in sensor_names:
+        sensor: ContactSensor = env.scene.sensors[name]
+        total += (sensor.data.force_matrix_w.norm(dim=-1) > force_threshold).sum(dim=(1, 2)).float()
+    return total
 
 
 class variable_posture(ManagerTermBase):
