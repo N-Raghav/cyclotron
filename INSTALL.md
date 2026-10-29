@@ -133,6 +133,10 @@ git submodule absorbgitdirs third_party/asimov-1
 git submodule init third_party/asimov-1
 ```
 
+After a pull that moves the pinned commit, update the checkout, which stays
+sparse, with `git submodule update third_party/asimov-1`; until then training
+uses the model checked out before.
+
 To use a robot model stored elsewhere, set `ASIMOV_1_MODEL_DIR` to a
 `sim-model` directory containing `urdf/asimov_1.urdf`. This is also needed
 for non-editable installs, since the default path is resolved relative to
@@ -141,6 +145,11 @@ this repository's checkout:
 ```bash
 export ASIMOV_1_MODEL_DIR=/path/to/asimov-1/sim-model
 ```
+
+Without it, `--export` and `--play` load the robot model each run was trained
+with, fetching an older one into cyclotron's cache when needed (see
+[The robot model](docs/code-changes-since-training.md#the-robot-model)); with
+it set, they load the model it names, and warn when that isn't the run's.
 
 ### Install this extension
 
@@ -151,10 +160,40 @@ extension in editable mode:
 ./cyclotron.sh --install
 ```
 
-### Policy viewer (optional)
+### Viewing and benchmarking only (optional)
 
-`./cyclotron.sh --view` runs in the browser through the
-`third_party/humanoid-policy-viewer` submodule and needs only Node.js 20 or
-newer, not this Python environment. It fetches the submodule, its npm
-dependencies and its own copy of the robot model on first use, so nothing
-needs to be installed ahead of time.
+You do not need Isaac Lab, Isaac Sim, torch or a training GPU to use
+`--view` and `--benchmark`. Install Python 3.10+ and
+[Node.js 20+](https://nodejs.org) (including npm), then from the repo root:
+
+```bash
+python -m venv .venv-eval
+source .venv-eval/bin/activate
+python -m pip install -r requirements-eval.txt
+./cyclotron.sh --view <org>/<model>
+```
+
+Skip the separate environment if using the full training installation.
+`cyclotron.sh` runs `python` (an active environment's), or `python3` where
+there is no `python`; `PYTHON_EXE=/path/to/python` selects another interpreter. The entry scripts
+also work directly: `python scripts/view.py ...` and
+`python scripts/benchmark.py ...`; no editable package install is necessary.
+
+Cyclotron uses Python for orchestration and all Hugging Face operations.
+HPV still needs Node for its server and benchmark runner; the UI runs in the
+browser. There is no TUI. Cyclotron checks Node's version but does **not**
+install Node or silently install missing Python packages.
+
+On first use, cyclotron automatically fetches the pinned
+`third_party/humanoid-policy-viewer` submodule and runs `npm ci`. Viewing
+and running benchmarks also fetch HPV's robot assets; the first benchmark
+run installs Playwright Chromium. These downloads require network access.
+If Chromium reports missing Linux system libraries, follow Playwright's
+installation guidance; cyclotron does not run privileged OS installers.
+
+When cyclotron's submodule pin changes, the next use updates a clean HPV
+checkout, moves its Asimov 1 robot model to the commit that HPV pins (with
+HPV's `scripts/init-asimov-1.sh`) and refreshes its npm dependencies. Local
+changes are left alone with a warning. Inspection for publication needs npm dependencies, but not
+robot assets or Chromium. See [viewing](docs/view.md) and
+[benchmarking/publication](docs/benchmark.md) for storage and commands.
